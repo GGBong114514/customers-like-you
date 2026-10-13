@@ -2,6 +2,17 @@
 
 A customer-product recommendation and segmentation project using the [UCI Online Retail II dataset](https://doi.org/10.24432/C5CG6D). We use sparse purchase histories to recommend products, compare Truncated SVD with PCA, evaluate against a popularity baseline, and explore customer groups.
 
+## Success Targets
+
+We agreed to evaluate our project using four success targets:
+
+1. **Storage:** Reduce the stored customer and product factors compared with the original dense customer-product matrix.
+2. **Speed:** Measure the time needed to train the model and generate recommendations for all customers.
+3. **Recommendation Quality:** Achieve a higher Hit Rate@10 than the best-seller baseline using held-out purchases.
+4. **Customer Segmentation:** Identify customer groups with clear purchasing patterns that can be described using products and countries.
+
+We use these targets to evaluate our results and discuss the limitations of our recommendation system.
+
 ## Project goals and responsibilities
 
 - **Data Engineer (A):** Clean transactions, handle returns, create a time-based train/test split, build sparse matrices, and evaluate recommendations using private held-out purchases.

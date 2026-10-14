@@ -1,12 +1,3 @@
-"""生成训练矩阵和本地测试文件。
-Build the training matrices and local test files.
-
-在 PyCharm 中运行，或使用下面的命令。
-Run in PyCharm, or use: python build_matrix.py --value log
-
-不修改原始 Excel。
-Keep the raw Excel unchanged.
-"""
 from pathlib import Path
 import argparse
 import hashlib

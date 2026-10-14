@@ -1,86 +1,118 @@
 # Customers Like You: PCA or SVD for a Real Retail Problem
 
-A customer-product recommendation and segmentation project using the [UCI Online Retail II dataset](https://doi.org/10.24432/C5CG6D). We use sparse purchase histories to recommend products, compare Truncated SVD with PCA, evaluate against a popularity baseline, and explore customer groups.
+A product recommender and customer segmentation for GiftLane, built on the [UCI Online Retail II dataset](https://doi.org/10.24432/C5CG6D). We turn two years of invoices into a sparse customer x product matrix, compress it with Truncated SVD, compare against PCA, and test the recommendations against a best-seller baseline on purchases the model never saw.
 
-## Success Targets
+## Team
 
-We agreed to evaluate our project using four success targets:
+| Role | Name | Owns |
+|---|---|---|
+| Data Engineer | Chengyuan Liu | Loading, cleaning, return matching, time split, sparse matrices, held-out evaluation |
+| ML Engineer | Wan Chi Kao | Method choice, choice of k, recommendations, PCA vs SVD comparison, customer map, purchase-value comparison |
+| Both | | Memo, slides, README, final submission |
 
-1. **Storage:** Reduce the stored customer and product factors compared with the original dense customer-product matrix.
-2. **Speed:** Measure the time needed to train the model and generate recommendations for all customers.
-3. **Recommendation Quality:** Achieve a higher Hit Rate@10 than the best-seller baseline using held-out purchases.
-4. **Customer Segmentation:** Identify customer groups with clear purchasing patterns that can be described using products and countries.
+## Success targets and results
 
-We use these targets to evaluate our results and discuss the limitations of our recommendation system.
+We agreed these targets before fitting any model.
 
-## Project goals and responsibilities
+| Target | Result | Met |
+|---|---|---|
+| Storage: stored factors much smaller than the full dense matrix | 161 MB dense matrix vs 7.32 MB of factors at k = 100 | Yes |
+| Speed: fit and score all customers fast enough for a nightly job | SVD fit 0.20 s; scoring all 5,463 customers about 1.1 s | Yes |
+| Quality: Hit Rate@10 above the best-seller baseline on held-out purchases | 23.50% vs 17.37% | Yes |
+| Segments: customer groups that can be named from products and countries | 5 named groups | Yes |
 
-- **Data Engineer (A):** Clean transactions, handle returns, create a time-based train/test split, build sparse matrices, and evaluate recommendations using private held-out purchases.
-- **ML Engineer (B):** Select and compare dimensionality-reduction methods, generate recommendations, measure efficiency, test purchase-value representations, and visualize customer segments.
-- **Both:** Prepare the project memo, presentation, documentation, and final submission.
+## Repository layout
 
-We evaluate recommendation quality with Hit Rate@10 and report model timing and stored factor size. The timing and storage measurements below describe this experiment, not a production deployment or a guaranteed performance target.
+```text
+build_matrix.py               One command: raw Excel -> cleaned data, split, three matrices, reports
+check_return_rules.py         Tests for the return-matching rules
+01_explore.ipynb              Data exploration (outputs cleared)
+02_build_matrix_steps.ipynb   Step-by-step version of build_matrix.py (outputs cleared)
+ml_experiments.ipynb          ML1 to ML7
+validate_recommendations.py   Checks a recommendation file before evaluation
+evaluate.py                   Hit Rate@10 for all methods and the baseline
+recs_svd.npy, recs_pca.npy, recs_count.npy, recs_binary.npy
+reports/                      Data profile, cleaning log, return summary, matrix report, decision log, validation
+reports/evaluation/           Evaluation results and summary
+memo.pdf                      One-page memo for the stakeholder
+Contribution log.pdf          Signed contribution log
+requirements.txt
+```
 
-## Dataset and preprocessing
+The two data notebooks have their outputs cleared because, run locally, they can show real customer IDs. `data/` is in `.gitignore` and is never committed.
 
-The source contains **1,067,371 raw transaction rows** across two sheets. After cleaning, the training period contains **654,635 rows**. We use a time-based cutoff of **2011-10-09 12:50:00**:
+## Data
 
-- **Training:** Transactions strictly before the cutoff.
-- **Held-out test:** Transactions at or after the cutoff.
+### Source
 
-Returns are matched against earlier purchases where possible and reduce retained purchase quantities before cancellation lines are removed. Because the source does not always identify the original invoice for a return, some matches are uncertain; unmatched and ambiguous cases are documented in `decision_log.md`. Training data is frozen before test-period returns are processed.
+The Excel file has two sheets, one per year, with **1,067,371 rows** in total (1 Dec 2009 to 9 Dec 2011).
 
-Additional documented decisions:
+### Cleaning
 
-- `PADS` is retained despite its suspiciously low price; this remains a known data-quality uncertainty.
-- `SP1002` passes stock-code cleaning but is excluded from the final matrix because it has fewer than 10 training buyers.
-- Products must have at least **10 distinct training buyers** to be included.
-- Product descriptions and customer countries use training-data modes, with alphabetical tie-breaking.
+Rules run in this order. A row removed by an earlier rule is not counted again. Full log: `reports/cleaning_log.csv`.
 
-### Customer-product matrices
+| Rule | Rows removed | Rows remaining |
+|---|---:|---:|
+| Raw | 0 | 1,067,371 |
+| Exact duplicates | 34,335 | 1,033,036 |
+| Fully returned purchases | 6,278 | 1,026,758 |
+| Cancellation lines (Invoice starts with "C") | 19,104 | 1,007,654 |
+| Quantity <= 0 | 3,393 | 1,004,261 |
+| Price <= 0 | 2,626 | 1,001,635 |
+| Missing Customer ID | 228,488 | 773,147 |
+| Missing Invoice or StockCode | 0 | 773,147 |
+| Non-product codes | 2,720 | 770,427 |
+
+Removing cancellation lines alone leaves the cancelled purchase in the data. For example, one order of 74,215 storage jars was cancelled the same day. So each return is first matched to an earlier purchase by the same customer, of the same product, at the same price, and the matched units are removed. A purchase that is fully returned is dropped. The raw data does not link a return to its original invoice, so this matching is an assumption. Unmatched returns are counted in `reports/return_summary.csv` and described in `reports/decision_log.md`.
+
+Other decisions, with reasons in `reports/decision_log.md`:
+
+- `PADS` is kept. Its description names a product, but its price of £0.001 is suspicious.
+- A product needs at least 10 different training customers to enter the matrix. `SP1002` passes the code rule but is removed here.
+- Each product's description and each customer's country is the most common value in the training data, with ties broken alphabetically.
+
+### Time split
+
+The cutoff is **9 Oct 2011 12:50**, two months before the last invoice.
+
+| Set | Rows | Period |
+|---|---:|---|
+| Train | 654,635 | 1 Dec 2009 to 9 Oct 2011 12:49 |
+| Test | 115,792 | 9 Oct 2011 12:59 to 9 Dec 2011 |
+
+Training quantities are fixed at the cutoff. Returns in the test period do not change the training data.
+
+The held-out purchases are test purchases of products the customer **never bought in training**, for customers and products that are in the matrix: **44,578 pairs from 1,906 customers**. Only the Data Engineer holds this file. No model, filter or index map sees it.
+
+### Matrices
 
 | Property | Value |
 |---|---:|
-| Customers | 5,463 |
-| Products | 3,684 |
-| Matrix shape | `(5463, 3684)` |
-| Nonzero customer-product pairs | 411,374 |
+| Shape (customers x products) | 5,463 x 3,684 |
+| Non-zero cells | 411,374 |
 | Sparsity | 97.96% |
+| Dense float64 storage | 161 MB |
+| Sparse CSR storage | 4.96 MB |
 
-All three matrices use CSR sparse format and share the same nonzero positions:
+Three CSR matrices share the same rows, columns and non-zero positions. Quantities are summed per customer and product first, then transformed.
 
-| File | Purchase value |
+| File | Cell value |
 |---|---|
-| `A_train_log.npz` | `log(1 + summed retained quantity)` |
-| `A_train_count.npz` | Summed retained quantity |
-| `A_train_binary.npz` | 1 for a positive training purchase, otherwise 0 |
+| `A_train_log.npz` | log(1 + total quantity), the main matrix |
+| `A_train_count.npz` | total quantity |
+| `A_train_binary.npz` | 1 if bought |
 
-`products.csv` maps `product_idx` to `StockCode`, `Description`, and `n_customers`; `customers.csv` maps `customer_idx` to `Country` without exposing original customer IDs. Indices start at zero, are consecutive, and correspond to matrix columns and rows respectively.
+`products.csv` maps each column to `StockCode`, `Description` and `n_customers`. `customers.csv` maps each row to `Country`. Neither file contains a customer ID. Both are generated by `build_matrix.py` and are not committed.
 
-**Version warning:** These matrices replace an older `(5473, 3688)` build. Never mix old recommendation files, index mappings, or matrices with this version.
+## Model
 
-### Data handoff and reports
+### ML1: Method choice
 
-The Data Engineer's aggregate handoff includes:
+We chose Truncated SVD before running anything. The matrix is 98% empty, and Truncated SVD works on it directly without centring, giving customer and product factors in one fit. PCA centres each column first, so it describes how a customer differs from the average customer. We ran PCA with the same k as a comparison.
 
-- `profile.csv`, `cleaning_log.csv`, `return_summary.csv`
-- `matrix_report.json`, `validation.json`
-- `decision_log.md`
-- `products.csv`, `customers.csv`, and the three training `.npz` matrices
+### ML2: Choosing k
 
-Raw Excel files, transaction-level tables, original customer ID maps, detailed return audits, and held-out customer-product pairs are **not** included in the public repository. Aggregate held-out counts are not model inputs and were not used to tune the models.
-
-## ML methods and results
-
-### ML1: Method selection
-
-We chose **Truncated SVD** as the main method because the customer-product matrix is approximately 98% sparse. Truncated SVD works directly with sparse input without centering. PCA centers features, which can complicate sparse-data processing. PCA is retained as a comparison method.
-
-### ML2: Number of components
-
-We tested Truncated SVD with `k = 10, 20, 50, 100, 200` and measured relative reconstruction error.
-
-| Components (k) | Relative reconstruction error |
+| k | Relative reconstruction error |
 |---:|---:|
 | 10 | 0.8757 |
 | 20 | 0.8454 |
@@ -88,55 +120,50 @@ We tested Truncated SVD with `k = 10, 20, 50, 100, 200` and measured relative re
 | 100 | 0.7272 |
 | 200 | 0.6391 |
 
-We selected **k = 100** as a practical balance between reconstruction error and the size of the retained representation. Increasing k further reduces error, but requires more components. The reconstruction-error plot is included in the ML notebook.
+We chose **k = 100** as a balance between error and size. Going to 200 lowers the error further but doubles the stored factors. The curve is in `ml_experiments.ipynb`.
 
-### ML3: Product similarity and recommendations
+What is lost: at k = 100 the factors rebuild the log matrix with a relative error of 0.73. Exact quantities are lost; the buying patterns that link products bought together are kept.
 
-Using the log-value training matrix and Truncated SVD (`k = 100`), we:
+### ML3: Recommendations
 
-1. Extract product factor vectors from the SVD components.
-2. L2-normalize product vectors and calculate product-to-product cosine similarity.
-3. Score candidate products for each customer using similarities to products they purchased in training.
-4. Exclude all products already purchased by that customer in training.
-5. Return the 10 highest-scoring remaining products.
+1. Take the product factor vectors from the SVD and scale each to length 1.
+2. Compute cosine similarity between products.
+3. Score each product for a customer by its similarity to what the customer bought in training.
+4. Drop products the customer already bought.
+5. Keep the top 10.
 
-The main output is `recs_svd.npy`, an integer array of shape `(5463, 10)`. The notebook also demonstrates top-10 similar products for an example product. Product similarity reflects **co-purchase patterns**, not necessarily functional or semantic similarity.
+The output `recs_svd.npy` has shape (5463, 10). Row i holds 10 product indices for customer i, highest score first. Similarity here means "bought by the same customers", not "the same kind of product".
 
-### ML4: Efficiency and recommendation quality
+### ML4: Size and speed
 
-| Measure | Observed result |
+| Measure | Value |
 |---|---:|
-| SVD components | 100 |
-| Stored customer and product factors | 6.98 MiB |
-| SVD fit time | Approximately 0.3 seconds in the reported timing run |
-| Recommendation scoring, masking and top-10 selection | Approximately 1 second for 5,463 customers |
-| SVD Log Hit Rate@10 | **23.50%** |
-| Best-seller baseline Hit Rate@10 | **17.37%** |
+| Stored customer and product factors (k = 100) | 7.32 MB |
+| SVD fit | 0.20 s |
+| Scoring and top-10 for all 5,463 customers | about 1.1 s |
 
-Timing measurements vary between runs. The recommendation timing **excludes SVD fitting and construction of the product-similarity matrix**; it must not be interpreted as end-to-end runtime. The 6.98 MiB factor size excludes the original matrix, similarity matrix, and intermediate arrays.
+The factors are 22 times smaller than the dense matrix, but slightly larger than the 4.96 MB sparse matrix. Their value is that scoring and product-to-product similarity become fast. Times come from single runs and vary between runs; the scoring time excludes the fit and building the similarity matrix.
 
-The main SVD Log model exceeded the best-seller baseline by **6.14 percentage points** (448 versus 331 customers with a hit, out of 1,906 eligible customers).
+### ML5: PCA vs Truncated SVD
 
-### ML5: PCA versus Truncated SVD
-
-Both methods use the same log training matrix and `k = 100`.
+Same log matrix, k = 100.
 
 | Measure | PCA | Truncated SVD |
 |---|---:|---:|
+| Fit time, one run | 0.31 s | 0.20 s |
+| Peak Python memory during fit | 16.66 MB | 17.83 MB |
+| Stored factors | 7.35 MB | 7.32 MB |
 | Relative reconstruction error | 0.7257 | 0.7269 |
-| Stored factor size | 7.01 MiB | 6.98 MiB |
-| Peak Python memory during fit | 15.89 MiB | 17.00 MiB |
-| Hit Rate@10 | **22.67%** | **23.50%** |
+| Hit Rate@10 | 22.67% | 23.50% |
+| Best-seller Hit Rate@10 | 17.37% | 17.37% |
 
-Fit times were only measured in individual runs and varied across notebook executions, so we do not claim a consistent speed advantage for either method. `tracemalloc` measures traced Python allocations and may omit native memory allocations made by NumPy, SciPy, or other libraries.
+Component 1 of both methods is dominated by the same products: 9 of the top 10 loadings are shared, mainly baking supplies, lunch bags and home decorations. For SVD it tracks how much a customer buys of these core items; for PCA it is the main direction of difference from the average customer. Peak memory is measured with `tracemalloc` and may miss memory allocated inside NumPy and SciPy.
 
-The first PCA and SVD components share 9 of their 10 largest absolute product loadings, including baking supplies, lunch bags, and home decorations. Large absolute loadings indicate products that contribute strongly to a component; the displayed top loadings are positive in this run. PCA describes variation relative to average purchases, while SVD works with the original matrix. Both outperform the baseline in this held-out evaluation, and SVD has a slightly higher observed hit rate.
+### ML6: Customer map
 
-### ML6: Customer map and segmentation
+Customer vectors are scaled to length 1, projected to 2 SVD components, and grouped with k-means. We compared 3 to 6 groups and chose 5 because they separated clearly and were easy to name.
 
-We L2-normalized customer purchase vectors, projected them into two dimensions with Truncated SVD, and compared KMeans with 3, 4, 5, and 6 groups. We chose **5 groups** based on the visual separation and interpretability of their purchase patterns.
-
-| Cluster | Customers | Segment name | Common products |
+| Group | Customers | Name | Typical products |
 |---:|---:|---|---|
 | 0 | 586 | Baking & Home | Cake cases, cake stands, decorations |
 | 1 | 1,864 | Mixed Shoppers | Cake stands, shopping bags, party supplies |
@@ -144,121 +171,102 @@ We L2-normalized customer purchase vectors, projected them into two dimensions w
 | 3 | 488 | Bags & Lunch | Lunch bags, jumbo bags, cake cases |
 | 4 | 1,362 | Baking & Tea | Baking sets, tea sets, cake stands |
 
-Approximately **93.2%** of customers are from the United Kingdom, limiting the usefulness of country for separating most groups. Cluster 3 has a relatively higher share of customers from other countries. The notebook includes the customer map and top products and countries for each group; it does not display real customer IDs.
+93.2% of customers are in the United Kingdom, so country separates the groups only weakly. Group 3 has the highest share of customers outside the UK. The map in the notebook shows no customer IDs.
 
-### ML7: Purchase-value sensitivity
+### ML7: Purchase value
 
-We used the same Truncated SVD recommendation method (`k = 100`) with three input representations:
+Same SVD method and k, three cell values:
 
-| Purchase representation | Hit Rate@10 | Difference from baseline |
+| Cell value | Hit Rate@10 | vs baseline |
 |---|---:|---:|
-| Log | 23.50% | +6.14 percentage points |
-| Count | 14.27% | −3.10 percentage points |
-| Binary | **24.50%** | +7.14 percentage points |
+| Log (main) | 23.50% | +6.14 pp |
+| Binary | 24.50% | +7.14 pp |
+| Count | 14.27% | -3.10 pp |
 
-Binary achieved the highest **observed** hit rate, 1.00 percentage point above Log (19 additional customers with a hit). This is a descriptive difference, not a statistical significance claim. Count was below the best-seller baseline. We retain the preselected **SVD Log** method as our main result and report Binary and Count as sensitivity comparisons; held-out test results were not used for further tuning.
+Binary is 1 point above log (19 more customers with a hit). We fixed log as the main matrix before seeing any test result, so we keep it and report binary as the first thing to try next. Count falls below the baseline because a few wholesalers buying thousands of units dominate the raw quantities.
 
-## Held-out evaluation
+## Evaluation
 
-The Data Engineer evaluated the four recommendation arrays against the **same 1,906 customers** who had at least one eligible held-out purchase. The test set contains **44,578 distinct customer-product pairs**. Customers without eligible held-out purchases are excluded from the denominator, and each eligible customer contributes at most one hit.
+**Hit Rate@10** = the share of the 1,906 held-out customers who have at least one held-out product in their top 10. Every method is scored on the same customers.
 
-**Hit Rate@10** is the fraction of eligible customers with at least one held-out product among their top 10 recommendations. It is **not** precision@10 and is **not** the fraction of all test purchases recovered.
+**Baseline:** products ranked by total training quantity (ties by `product_idx`). Each customer gets the top 10 they have not bought. The ranking uses training data only.
 
-| Method | Customers with a hit | Hit Rate@10 | Difference from baseline |
+| Method | Customers with a hit | Hit Rate@10 | vs baseline |
 |---|---:|---:|---:|
-| SVD Log | 448 / 1906 | 23.50% | +6.14 pp |
-| PCA Log | 432 / 1906 | 22.67% | +5.30 pp |
-| SVD Count | 272 / 1906 | 14.27% | −3.10 pp |
-| SVD Binary | 467 / 1906 | **24.50%** | +7.14 pp |
-| Best-seller Count | 331 / 1906 | 17.37% | 0.00 pp |
+| SVD, log (main) | 448 / 1,906 | 23.50% | +6.14 pp |
+| SVD, binary | 467 / 1,906 | 24.50% | +7.14 pp |
+| PCA, log | 432 / 1,906 | 22.67% | +5.30 pp |
+| Best sellers | 331 / 1,906 | 17.37% | 0 |
+| SVD, count | 272 / 1,906 | 14.27% | -3.10 pp |
 
-### Best-seller baseline
+Checks on the evaluation:
 
-The baseline ranks products by **total retained training quantity** from `A_train_count.npz`, breaks ties by `product_idx`, excludes each customer's training purchases, and takes the first 10 remaining products. Popularity is computed **only from training data**. Ranking by the number of buyers would be a different baseline.
+- All four recommendation files pass `validate_recommendations.py`: right shape, integer indices in range, 10 different products per customer, nothing the customer already bought.
+- No held-out pair appears in the training matrix.
+- The metric gives 6.24% for random unseen products (seed 42) and 100% when the held-out products are put in the list on purpose, so it behaves as expected.
+- The best-seller list gives the same top product to 94.49% of evaluated customers. The log and binary SVD models are far more varied: their most common product goes to about 2.5% of customers (11.54% for count).
 
-### Evaluation checks and limitations
+Results: `reports/evaluation/evaluation_results.csv` and `reports/evaluation/evaluation_summary.md`.
 
-All four recommendation arrays passed validation for shape `(5463, 10)`, integer dtype, valid product indices, 10 distinct products per customer, and exclusion of training purchases. Held-out pairs were checked for valid indices, uniqueness, and no overlap with retained training purchases. Independent sparse-matrix calculations reproduced the four hit counts.
+## How to run
 
-Additional metric sanity checks included a hand-worked example, zero-hit case, invalid-input rejection, a random unseen-item baseline (**6.24%**, seed 42), and a test-aware oracle (**100%**, used solely to test the metric and **not** as a model).
+Python 3.12. Run every command from the project root.
 
-Recommendation concentration differed across methods. Among evaluated customers, the most commonly recommended item appeared for **2.52%** of SVD Log customers, **2.83%** of PCA Log customers, **11.54%** of SVD Count customers, and **2.57%** of SVD Binary customers. The corresponding figure for the global best-seller baseline was **94.49%**. Concentration alone does not explain differences in hit rate or establish the presence or absence of leakage.
-
-The evaluation inspected the supplied notebook and saved recommendation arrays but **did not rerun the notebook**. A training-input checksum was not supplied with B's outputs, so exact training-file provenance was not independently established. The validator also cannot prove that saved recommendations are in descending score order without access to scores. See the evaluation reports for further details.
-
-## Recommendation outputs
-
-| File | Model | Input |
-|---|---|---|
-| `recs_svd.npy` | Truncated SVD | Log |
-| `recs_pca.npy` | PCA | Log |
-| `recs_count.npy` | Truncated SVD | Count |
-| `recs_binary.npy` | Truncated SVD | Binary |
-
-Each file has shape `(5463, 10)`, where row `i` contains ten recommended zero-based `product_idx` values for customer `i`. The notebook generates recommendations in descending score order; the validator independently checks shape, dtype, index range, uniqueness, and exclusion of seen training items, but **not score ordering**.
-
-## How to reproduce
-
-Use **Python 3.12** and install the packages in `requirements.txt` into a virtual environment. Run commands from the project root, with paths adjusted if the repository uses different directories.
-
-### 1. Rebuild the data handoff
-
-Obtain the UCI Online Retail II Excel file separately and place it at `data/raw/online_retail_II.xlsx` beside the expected project structure. Then run:
+### 1. Install
 
 ```bash
-python build_matrix.py --value log
+python -m venv .venv
+# Windows: .venv\Scripts\activate    macOS / Linux: source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-The script writes all three matrices and aggregate reports to `data/processed/handoff/`. The `--value` argument identifies the preferred matrix but does not change which three matrices are generated. `--raw` and `--output` can override the paths.
+### 2. Build the matrices
 
-The private output directory contains `train.parquet`, `test_transactions.parquet`, `customer_id_map.csv`, `return_audit.csv`, and `test.csv`. **Do not commit or share this directory.**
+Download the dataset from https://archive.ics.uci.edu/dataset/502/online+retail+ii and put the Excel file at `data/raw/online_retail_II.xlsx`. Then:
 
-### 2. Run the ML notebook
-
-Open `ml_experiments.ipynb` and ensure the following files are accessible from its working directory:
-
-```text
-A_train_log.npz
-A_train_count.npz
-A_train_binary.npz
-products.csv
-customers.csv
-validate_recommendations.py
+```bash
+python build_matrix.py
+python check_return_rules.py
 ```
 
-Run the notebook from the beginning to reproduce the ML figures, comparison tables, customer groups, and four recommendation arrays. The notebook uses fixed random seeds where applicable. Its saved outputs reflect particular runs; short runtime measurements may vary.
+`build_matrix.py` writes the shared files (three matrices, `products.csv`, `customers.csv`, reports) to `data/processed/handoff/`, and the held-out file and customer ID map to `data/processed/handoff/private/`. Never share or commit the `private` folder.
 
-### 3. Validate recommendation arrays
+### 3. Run the ML notebook
+
+The notebook and the validator read their inputs from the project root. Copy the five shared files there:
+
+```bash
+# Windows
+copy data\processed\handoff\A_train_*.npz .
+copy data\processed\handoff\products.csv .
+copy data\processed\handoff\customers.csv .
+# macOS / Linux
+cp data/processed/handoff/A_train_*.npz data/processed/handoff/products.csv data/processed/handoff/customers.csv .
+```
+
+Open `ml_experiments.ipynb` and run all cells from the top. It writes the four `recs_*.npy` files to the project root. Random seeds are fixed; timings will differ slightly.
+
+### 4. Validate and evaluate
 
 ```bash
 python validate_recommendations.py recs_svd.npy
 python validate_recommendations.py recs_pca.npy
 python validate_recommendations.py recs_count.npy
 python validate_recommendations.py recs_binary.npy
-```
-
-### 4. Evaluate against held-out purchases
-
-Evaluation must be run by the Data Engineer, who retains the private held-out data:
-
-```bash
 python evaluate.py
 ```
 
-By default, the evaluation script reads recommendation arrays from `B_to_A/B_to_A/` and the private test file from `data/processed/handoff/private/test.csv`, and writes aggregate reports to `reports/evaluation/`. Use `--recs-dir` if recommendation arrays are elsewhere. The resulting public reports include `evaluation_results.csv`, `evaluation_summary.md`, `evaluation_metadata.json`, `metric_checks.json`, `recommendation_diagnostics.csv`, and `top_recommended_products.csv`.
-
-**Path note:** The data-build instructions and notebook currently use different default working directories. Keep the input files where the notebook expects them or update the notebook paths before running from a clean checkout. Verify that the named scripts and reports are committed in the locations described here.
+`evaluate.py` reads the `recs_*.npy` files from the project root and the held-out file from `data/processed/handoff/private/test.csv`, and writes results to `reports/evaluation/`. Only the Data Engineer has the held-out file.
 
 ## Limitations
 
-- The dataset is sparse, and purchase-based product similarity does not necessarily reflect product function or meaning.
-- Some return matching is uncertain because the raw data lacks complete invoice links; known decisions are recorded in `decision_log.md`.
-- Hit Rate@10 is a single held-out metric; it does not measure purchase value, ranking quality beyond a hit, diversity, or statistical significance.
-- The observed Binary advantage is not a reason to retune on the final held-out set.
-- Short fit-time measurements vary between runs. Stored factor size is not full model or pipeline memory; `tracemalloc` may miss native allocations.
-- A 2D projection and KMeans clusters are exploratory summaries, not definitive customer categories.
-- The public repository excludes original customer IDs and detailed held-out transactions.
+- One time split, covering October to December. Christmas buying may not represent the rest of the year.
+- Return matching is an assumption, because the data does not link returns to their original orders.
+- New customers and products with fewer than 10 buyers are not covered; they would need a fallback such as best sellers.
+- Hit Rate@10 counts customers with at least one correct suggestion. It does not measure revenue, ranking order within the 10, or whether the suggestions caused a sale.
+- The binary result is a single observed difference, not a significance test, and the test set was not used to retune anything.
+- The 2D map and k-means groups are a summary for marketing, not fixed customer types.
 
-## Dataset citation
+## Data source
 
-Chen, D. (2012). *Online Retail II* [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D. Licensed under CC BY 4.0. This project cleans, filters, and aggregates the source data.
+Chen, D. (2012). *Online Retail II* [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D. Licence CC BY 4.0.

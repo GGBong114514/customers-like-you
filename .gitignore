@@ -1,0 +1,11 @@
+data/
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.idea/
+private/
+B_handoff/
+B_to_A/
+*.zip
+review_notes.md
+file_checksums.json

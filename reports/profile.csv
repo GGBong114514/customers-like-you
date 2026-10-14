@@ -1,0 +1,9 @@
+,dtype,missing,missing_%,n_unique
+Invoice,string,0,0.0,53628
+StockCode,string,0,0.0,5131
+Description,string,4382,0.41,5655
+Quantity,int64,0,0.0,1057
+InvoiceDate,datetime64[us],0,0.0,47635
+Price,float64,0,0.0,2807
+Customer ID,float64,243007,22.77,5942
+Country,string,0,0.0,43

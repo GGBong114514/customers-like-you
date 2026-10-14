@@ -1,0 +1,10 @@
+rule,removed,remaining
+raw,0,1067371
+exact duplicates,34335,1033036
+fully returned purchases,6278,1026758
+cancellation,19104,1007654
+Quantity <= 0,3393,1004261
+Price <= 0,2626,1001635
+missing Customer ID,228488,773147
+missing Invoice or StockCode,0,773147
+non-product codes,2720,770427

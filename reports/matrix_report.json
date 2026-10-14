@@ -1,0 +1,23 @@
+{
+  "raw_rows": 1067371,
+  "clean_rows": 770427,
+  "train_rows": 654635,
+  "test_transaction_rows": 115792,
+  "cutoff": "2011-10-09 12:50:00",
+  "train_start": "2009-12-01 07:45:00",
+  "train_end": "2011-10-09 12:49:00",
+  "test_start": "2011-10-09 12:59:00",
+  "test_end": "2011-12-09 12:50:00",
+  "shape": [
+    5463,
+    3684
+  ],
+  "nnz": 411374,
+  "min_customers": 10,
+  "sparsity_pct": 97.95597587402212,
+  "dense_mb_float64": 161.005536,
+  "sparse_mb": 4.958344,
+  "held_out_purchases": 44578,
+  "held_out_customers": 1906,
+  "test_unique_known_pairs": 76200
+}

@@ -31,8 +31,6 @@ Descriptions and countries use the most frequent nonmissing training value; alph
 ## Reproducibility and privacy
 The builder has no random step. Planned seed for model and clustering steps: 42. Real customer maps, transactions and test purchases stay private. Public reports contain only aggregate results. Raw data and notebook outputs with real customer IDs stay local.
 
-The best-seller baseline and hit rate will be computed when recommendation outputs arrive. All methods will use the same eligible test customers. Evaluation results are pending.
-
 ## Evaluation
 Use customer hit rate at 10: at least one recommended product in the customer's held-out set. Evaluate only the 1,906 customers with eligible held-out purchases, using the same denominator for every method. The other training customers have no eligible test target.
 
